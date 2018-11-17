@@ -171,10 +171,10 @@ CFD::CFD(int x, float size, float uIn){
 	cudaMalloc((void**)&d_x, (dim+ghosts*2)*sizeof(float));
 	cudaMalloc((void**)&d_oA, (dim+ghosts*2)*sizeof(float));
 	cudaDeviceSynchronize();
-	initialize<<<numBlocks, 1024>>>(d_a, d_oA, d_x, totalX, dim, ghosts);
+	initialize<<<1, 1024>>>(d_a, d_oA, d_x, totalX, dim, ghosts);
 	cudaDeviceSynchronize();
 	// initSinusoid<<<numBlocks, 1024>>>(d_a, d_x, totalX, dim, ghosts, 1, 0.5);
-	initSquare<<<numBlocks, 1024>>>(d_a, d_x, totalX, dim, ghosts);
+	initSquare<<<1, 1024>>>(d_a, d_x, totalX, dim, ghosts);
 	cudaDeviceSynchronize();
 }
 
@@ -195,6 +195,6 @@ void CFD::setInitial(int x, float init){
 
 void CFD::step(float maxtime){
 	cudaDeviceSynchronize();
-	advect<<<numBlocks, 1024>>>(d_a, d_oA, d_x, u, dim, ghosts, maxtime);
+	advect<<<1, 1024>>>(d_a, d_oA, d_x, u, dim, ghosts, maxtime);
 	cudaDeviceSynchronize();
 }
