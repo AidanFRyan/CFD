@@ -1,7 +1,7 @@
 #include "cfd.h"
 
 
-__global__ void initialize(double* a, double* oA, double* x, double totalSize, int n, int ghosts){
+__global__ void initialize(float* a, float* oA, float* x, float totalSize, int n, int ghosts){
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	for(int j = 0; blockDim.x*j + i < n + 2*ghosts; j++){
 		int index = blockDim.x*j + i;
@@ -11,20 +11,20 @@ __global__ void initialize(double* a, double* oA, double* x, double totalSize, i
 	}
 }
 
-__device__ void setA(int x, double init, double* a){
+__device__ void setA(int x, float init, float* a){
 	a[x] = init;
 }
 
-__device__ double linInterp(double* in){	//dangerous function, need to make sure you're only using it on the in-bounds parts of array
+__device__ float linInterp(float* in){	//dangerous function, need to make sure you're only using it on the in-bounds parts of array
 	return ((*(in+1) + *in)/2) - ((*in + *(in-1))/2);
 }
 
-__device__ double colellaEvenInterp(double*in){
+__device__ float colellaEvenInterp(float*in){
 	return (7.0/12)*(*(in+1) - *(in-1)) - (1.0/12)*((*(in+2) + *(in-1))-(*(in+1) + *(in-2)));
 }
 
 
-__global__ void advect(double* a, double* oA, double* x, double u, int n, int ghosts, double* minDx, double* dt, double* timeElapsed, int* counter, double tmax){
+__global__ void advect(float* a, float* oA, float* x, float u, int n, int ghosts, float* minDx, float* dt, float* timeElapsed, int* counter, float tmax){
 	// __shared__ bool* areYouLessThan;
 	__shared__ int maxN;
 	grid_group g = this_grid();
@@ -113,11 +113,11 @@ __global__ void advect(double* a, double* oA, double* x, double u, int n, int gh
 	}
 }
 
-__global__ void initSinusoid(double* a, double* x, double totalX, int n, int ghosts, double shift, double amp){
+__global__ void initSinusoid(float* a, float* x, float totalX, int n, int ghosts, float shift, float amp){
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	for(int j = 0; blockDim.x*j + i < n; j++){
 		int index = j*blockDim.x+i;
-		double temp = 0;
+		float temp = 0;
 		for(int z = 0; z < index; z++){
 			temp += x[z+ghosts];
 		}
@@ -138,7 +138,7 @@ __global__ void initSinusoid(double* a, double* x, double totalX, int n, int gho
 	}
 }
 
-__global__ void initSquare(double* a, double* x, double totalX, int n, int ghosts){
+__global__ void initSquare(float* a, float* x, float totalX, int n, int ghosts){
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	for(int j = 0; blockDim.x*j + i < n; j++){
 		int index = j*blockDim.x+i;
@@ -162,18 +162,18 @@ __global__ void initSquare(double* a, double* x, double totalX, int n, int ghost
 }
 
 
-CFD::CFD(int x, double size, double uIn){
+CFD::CFD(int x, float size, float uIn){
 	u = uIn;
 	ghosts = 2;
 	dim = x;
 	totalX = size;
-	a = new double[dim+2*ghosts];
+	a = new float[dim+2*ghosts];
 	numBlocks = dim/maxThreads;
 	if(dim%maxThreads != 0)
 		numBlocks++;
-	cudaMalloc((void**)&d_a, (dim+ghosts*2)*sizeof(double));
-	cudaMalloc((void**)&d_x, (dim+ghosts*2)*sizeof(double));
-	cudaMalloc((void**)&d_oA, (dim+ghosts*2)*sizeof(double));
+	cudaMalloc((void**)&d_a, (dim+ghosts*2)*sizeof(float));
+	cudaMalloc((void**)&d_x, (dim+ghosts*2)*sizeof(float));
+	cudaMalloc((void**)&d_oA, (dim+ghosts*2)*sizeof(float));
 	cudaDeviceSynchronize();
 	initialize<<<1, 1024>>>(d_a, d_oA, d_x, totalX, dim, ghosts);
 	cudaDeviceSynchronize();
@@ -182,9 +182,9 @@ CFD::CFD(int x, double size, double uIn){
 	cudaDeviceSynchronize();
 }
 
-double* CFD::getA(){
+float* CFD::getA(){
 	cudaDeviceSynchronize();
-	cudaMemcpy(a, d_a, (dim+2*ghosts)*sizeof(double), cudaMemcpyDeviceToHost);
+	cudaMemcpy(a, d_a, (dim+2*ghosts)*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaDeviceSynchronize();
 	return a;
 }
@@ -193,17 +193,17 @@ int CFD::getDim(){
 	return dim;
 }
 
-void CFD::setInitial(int x, double init){
+void CFD::setInitial(int x, float init){
 
 }
 
-void CFD::step(double maxtime){
-	double *dt,*te, *minDx;
+void CFD::step(float maxtime){
+	float *dt,*te, *minDx;
 	int* counter;
-	cudaMalloc((void**)&dt, sizeof(double));
-	cudaMalloc((void**)&te, sizeof(double));
+	cudaMalloc((void**)&dt, sizeof(float));
+	cudaMalloc((void**)&te, sizeof(float));
 	cudaMalloc((void**)&counter, sizeof(int));
-	cudaMalloc((void**)&minDx, sizeof(double));
+	cudaMalloc((void**)&minDx, sizeof(float));
 	cudaDeviceSynchronize();
 	advect<<<numBlocks, 1024>>>(d_a, d_oA, d_x, u, dim, ghosts, minDx, dt, te, counter, maxtime);
 	cudaDeviceSynchronize();
