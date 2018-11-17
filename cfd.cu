@@ -34,7 +34,7 @@ __global__ void advect(double* a, double* oA, double* x, double u, int n, int gh
 	if(i == 0){
 		*timeElapsed = 0;
 		*minDx = x[0];
-		*dt = (*minDx/u)/200;
+		*dt = (*minDx/u)/500;
 		*counter = 0;
 	}
 	if(threadIdx.x == 0){
@@ -177,8 +177,8 @@ CFD::CFD(int x, double size, double uIn){
 	cudaDeviceSynchronize();
 	initialize<<<1, 1024>>>(d_a, d_oA, d_x, totalX, dim, ghosts);
 	cudaDeviceSynchronize();
-	initSinusoid<<<numBlocks, 1024>>>(d_a, d_x, totalX, dim, ghosts, 1, 0.5);
-	// initSquare<<<1, 1024>>>(d_a, d_x, totalX, dim, ghosts);
+	// initSinusoid<<<numBlocks, 1024>>>(d_a, d_x, totalX, dim, ghosts, 1, 0.5);
+	initSquare<<<1, 1024>>>(d_a, d_x, totalX, dim, ghosts);
 	cudaDeviceSynchronize();
 }
 
