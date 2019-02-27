@@ -1,190 +1,155 @@
 #include "cfd.h"
 
 
-__global__ void initialize(float* a, float* oA, float* x, float totalSize, int n, int ghosts){
+__global__ void initialize(double* a, double* oA, double* x, double totalSize, int n, int ghosts){
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
-	for(int j = 0; blockDim.x*j + i < n + 2*ghosts; j++){
+	for(int j = 0; blockDim.x*j + i < n; j++){
 		int index = blockDim.x*j + i;
 		a[index] = 0;
 		oA[index] = 0;
 		x[index] = totalSize/n;
 	}
+	for(int j = n; j < n+2*ghosts; j++){
+		oA[j] = 0;
+	}
 }
 
-__device__ void setA(int x, float init, float* a){
+__device__ void setA(int x, double init, double* a){
 	a[x] = init;
 }
 
-__device__ float linInterp(float* in){	//dangerous function, need to make sure you're only using it on the in-bounds parts of array
+__device__ double linInterp(double* in){	//dangerous function, need to make sure you're only using it on the in-bounds parts of array
 	return ((*(in+1) + *in)/2) - ((*in + *(in-1))/2);
 }
 
-__device__ float colellaEvenInterp(float*in){
-	return (7.0/12)*(*(in+1) - *(in-1)) - (1.0/12)*((*(in+2) + *(in-1))-(*(in+1) + *(in-2)));
+__device__ double colellaEvenInterp(double* in){
+	double aRj = 7.0f/12*(*in + *(in+1)) - 1.0f/12*(*(in+2) + *(in-1));
+	if((aRj > *in && aRj < *(in+1)) || (aRj < *in && aRj > *(in+1)))
+		return aRj;
+	else return *in;
+}
+
+__device__ double colellaEvenInterp(double ai, double air1, double ail1, double air2, double ail2){
+	return (7.0/12)*(air1-ail1) - (1.0/12)*(air2 + ail1) - (air1 + ail2);
 }
 
 
-__global__ void advect(float* a, float* oA, float* x, float u, int n, int ghosts, float* minDx, float* dt, float* timeElapsed, int* counter, float tmax){
-	// __shared__ bool* areYouLessThan;
-	__shared__ int maxN;
-	grid_group g = this_grid();
-
+__global__ void advect(double* a, double* oA, double* x, double* prev, double u, int n, int ghosts, double* minDx, double* dt, double* timeElapsed, int* counter, double* error, double tmax){
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
+	int l_n = n;
+	double l_dt, l_tElapsed = 0, l_dx = x[0], l_u = u, l_tmax = tmax;
+	int l_ghosts = ghosts;
+	int step = 0;
+	const double courantFactor = 0.01;
+	l_dt = (l_dx/l_u) * courantFactor;
+	__syncthreads();
+	const int maxStep = 99999;
 
-	if(i == 0){
-		*timeElapsed = 0;
-		*minDx = x[0];
-		*dt = (*minDx/u)/500;
-		*counter = 0;
-	}
-	if(threadIdx.x == 0){
-		if(i + blockDim.x > n)
-			maxN = n-i;
-		else maxN = blockDim.x;
-	}
-	// __syncthreads();
-	// g.sync();
 
-	while(*timeElapsed < tmax){
-		// if(i==0){
-		// 	minDx = x[0+ghosts];
-		// 	areYouLessThan = new bool[n];
-		// }
-		// __syncthreads();
-		
-		// for(int j = 0; blockDim.x*j + i < n; j++){
-		// 	int index = j*blockDim.x+i;
-		// 	if(x[index+ghosts] < minDx)
-		// 		areYouLessThan[index] = true;
-		// 	else
-		// 		areYouLessThan[index] = false;
-		// }
-
-		// __syncthreads();
-
+	while(l_tElapsed < l_tmax && step < maxStep){
+		__syncthreads();
+		if(i == 0)
+			if(step % 1000 == 0 || l_tElapsed + l_dt > l_tmax)
+				for(int j = 0; j < l_n; j++){
+					printf("%d %d %f %f\n", j, step, l_tElapsed, a[j]);
+				}
+		__syncthreads();
+		for(int j = threadIdx.x; j < l_n; j+=blockDim.x){
+			prev[j+l_ghosts] = a[j];
+		}
+		__syncthreads();
+		if(i == 0){
+			for(int j = 0; j < l_ghosts; j++){
+				prev[j] = prev[l_ghosts];
+				prev[j + l_n + l_ghosts] = prev[l_n + l_ghosts - 1];
+			}
+		}
+		__syncthreads();
 		// if(i == 0){
-		// 	for(int j = 0; j < n; j++){
-		// 		if(areYouLessThan[j]){
-		// 			if(x[j+ghosts] < minDx)
-		// 				minDx = x[j+ghosts];
-		// 		}
+		// 	for(int j = 0; j < l_n + 2*l_ghosts; j++){
+		// 		printf("prev %d %d %f\n", j, step, prev[j]);
 		// 	}
-
-			// dt = (minDx/u)/1000;
-		// 	// printf("dt: %f\n", dt);
-		// 	delete[] areYouLessThan;
+		// 	// for(int j = 0; j < l_n; j++){
+		// 	// 	printf("a %d %d %f\n", j, step, a[j]);
+		// 	// }
 		// }
+		__syncthreads();
+		for(int j = threadIdx.x; j < l_n; j+=blockDim.x){
+			// int index = j*blockDim.x+i+ghosts;
 
-		// __syncthreads();
-		g.sync();
-
-		for(int j = 0; blockDim.x*j + threadIdx.x < maxN; j++){
-			int index = j*blockDim.x+i+ghosts;
-			oA[index] = a[index] - (*dt)*u*colellaEvenInterp(&a[index])/x[index];
-			// oA[index] = a[index] - dt*u*linInterp(&a[index])/x[index];
-			// printf("%d %f %f\n", index, a[index], oA[index]);
-			a[index] = oA[index];
+			// copy to local register for quick processing... this copy actually is less efficient than global memory refs if vars are only used once
+			// double ai = a[index], xi = x[index], air1 = a[index+1], air2 = a[index+2], ail1 = a[index-1], ail2 = a[index-2];
+			// a[index] = ai - l_dt*u*colellaEvenInterp(ai, air1, ail1, air2, ail2)/xi;
+		
+			oA[j+l_ghosts] = colellaEvenInterp(prev+j+l_ghosts);
 		}
 
-		// __syncthreads();
-		g.sync();
-		// printf("%d here\n", i);
-		if(*counter == 0){
-			for(int j = 0; blockDim.x*j + threadIdx.x < maxN; j++){
-				int index = j*blockDim.x+i+ghosts;
-				printf("%10f\t%10d\t%f\n", *timeElapsed, index-ghosts, a[index]);
-			}
-		}
+		__syncthreads();
+
 		if(i==0){	//copy over for boundary conditions
-			for(int j = 0; j < ghosts; j++){
-				a[j] = a[j+n];
-				a[n+ghosts+j] = a[ghosts+j];
-				// a[j] = a[ghosts];
-				// a[n+ghosts+j] = a[n+ghosts-1];
+			for(int j = 0; j < l_ghosts; j++){
+				oA[j] = oA[l_ghosts];
+				oA[l_n+l_ghosts+j] = oA[l_n+l_ghosts - 1];
 			}
-			
-			// printf("%f\n",dt);
-			// printf("%p %f\n", dtt, *dtt);
-			*timeElapsed += *dt;
-			(*counter)++;
-			if(*counter == 10000)
-				*counter = 0;
+		}		
+		__syncthreads();
+		
+		for(int j = threadIdx.x; j < l_n; j+=blockDim.x){
+			a[j] = a[j] + l_u * l_dt * (oA[j-1 + l_ghosts] - oA[j + l_ghosts]) / l_dx;
 		}
+		__syncthreads();
+		l_tElapsed += l_dt;
+		step++;
 	}
 }
 
-__global__ void initSinusoid(float* a, float* x, float totalX, int n, int ghosts, float shift, float amp){
+__global__ void initSinusoid(double* a, double* x, double totalX, int n, int ghosts, double shift, double amp){
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	for(int j = 0; blockDim.x*j + i < n; j++){
 		int index = j*blockDim.x+i;
-		float temp = 0;
+		double temp = 0;
 		for(int z = 0; z < index; z++){
-			temp += x[z+ghosts];
+			temp += x[z];
 		}
-		a[index+ghosts] = sinpi((temp/totalX)*2)*amp + shift;
+		a[index] = sinpi((temp/totalX)*2)*amp + shift;
 	}
 	__syncthreads();
-
-	if(i==0){	//copy over for boundary conditions
-		for(int j = 0; j < ghosts; j++){
-			a[j] = a[j+n];
-			a[n+ghosts+j] = a[ghosts+j];
-			// a[j] = a[ghosts];
-			// a[n+ghosts+j] = a[n+ghosts-1];
-		}
-		// for(int z = 0; z < n+2*ghosts; z++){
-		// 	printf("%5d %10f\n", z, a[z]);
-		// }
-	}
 }
 
-__global__ void initSquare(float* a, float* x, float totalX, int n, int ghosts){
+__global__ void initSquare(double* a, double* x, double totalX, int n, int ghosts){
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	for(int j = 0; blockDim.x*j + i < n; j++){
 		int index = j*blockDim.x+i;
 		if(index > n/3 && index < 2*n/3)
-			a[index+ghosts] = 1.5;
-		else a[index+ghosts] = .5;
+			a[index] = 1.5;
+		else a[index] = .5;
 	}
 	__syncthreads();
 
-	if(i==0){	//copy over for boundary conditions
-		for(int j = 0; j < ghosts; j++){
-			a[j] = a[j+n];
-			a[n+ghosts+j] = a[ghosts+j];
-			// a[j] = a[ghosts];
-			// a[n+ghosts+j] = a[n+ghosts-1];
-		}
-		// for(int z = 0; z < n+2*ghosts; z++){
-		// 	printf("%5d %10f\n", z, a[z]);
-		// }
-	}
 }
 
 
-CFD::CFD(int x, float size, float uIn){
+CFD::CFD(int x, double size, double uIn){
 	u = uIn;
-	ghosts = 2;
+	ghosts = 3;
 	dim = x;
 	totalX = size;
-	a = new float[dim+2*ghosts];
-	numBlocks = dim/maxThreads;
-	if(dim%maxThreads != 0)
-		numBlocks++;
-	cudaMalloc((void**)&d_a, (dim+ghosts*2)*sizeof(float));
-	cudaMalloc((void**)&d_x, (dim+ghosts*2)*sizeof(float));
-	cudaMalloc((void**)&d_oA, (dim+ghosts*2)*sizeof(float));
+	a = new double[dim+2*ghosts];
+	numBlocks = 1;
+	cudaMalloc((void**)&d_a, (dim)*sizeof(double));
+	cudaMalloc((void**)&d_x, (dim)*sizeof(double));
+	cudaMalloc((void**)&d_oA, (dim+ghosts*2)*sizeof(double));
 	cudaDeviceSynchronize();
-	initialize<<<1, 1024>>>(d_a, d_oA, d_x, totalX, dim, ghosts);
+	initialize<<<numBlocks, 1024>>>(d_a, d_oA, d_x, totalX, dim, ghosts);
 	cudaDeviceSynchronize();
 	// initSinusoid<<<numBlocks, 1024>>>(d_a, d_x, totalX, dim, ghosts, 1, 0.5);
-	initSquare<<<1, 1024>>>(d_a, d_x, totalX, dim, ghosts);
+	initSquare<<<numBlocks, 1024>>>(d_a, d_x, totalX, dim, ghosts);
 	cudaDeviceSynchronize();
 }
 
-float* CFD::getA(){
+double* CFD::getA(){
 	cudaDeviceSynchronize();
-	cudaMemcpy(a, d_a, (dim+2*ghosts)*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(a, d_a, (dim)*sizeof(double), cudaMemcpyDeviceToHost);
 	cudaDeviceSynchronize();
 	return a;
 }
@@ -193,18 +158,20 @@ int CFD::getDim(){
 	return dim;
 }
 
-void CFD::setInitial(int x, float init){
+void CFD::setInitial(int x, double init){
 
 }
 
-void CFD::step(float maxtime){
-	float *dt,*te, *minDx;
+void CFD::step(double maxtime){
+	double *dt,*te, *minDx, *error, *prevA;
 	int* counter;
-	cudaMalloc((void**)&dt, sizeof(float));
-	cudaMalloc((void**)&te, sizeof(float));
+	cudaMalloc((void**)&dt, sizeof(double));
+	cudaMalloc((void**)&te, sizeof(double));
 	cudaMalloc((void**)&counter, sizeof(int));
-	cudaMalloc((void**)&minDx, sizeof(float));
+	cudaMalloc((void**)&minDx, sizeof(double));
+	cudaMalloc((void**)&error, sizeof(double));
+	cudaMalloc((void**)&prevA, sizeof(double)*dim+2*ghosts);
 	cudaDeviceSynchronize();
-	advect<<<numBlocks, 1024>>>(d_a, d_oA, d_x, u, dim, ghosts, minDx, dt, te, counter, maxtime);
+	advect<<<1, 512>>>(d_a, d_oA, d_x, prevA, u, dim, ghosts, minDx, dt, te, counter, error, maxtime);
 	cudaDeviceSynchronize();
 }

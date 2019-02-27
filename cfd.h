@@ -3,26 +3,26 @@
 #include <cooperative_groups.h>
 using namespace std;
 using namespace cooperative_groups;
-__global__ void initialize(float* a, float* oA, float* x, float totalSize, int n, int ghosts);
-__global__ void advect(float dt, float* a, float* oA, float* x, float u, int n, int ghosts, float tmax);
-__global__ void initSinusoid(float* a, float* x, float totalX, int n, int ghosts, float shift, float amp);
-__global__ void initSquare(float* a, float* x, float totalX, int n, int ghosts);
-__device__ void setA(int x, float init, float* a);
-__device__ float linInterp(float* in);
-__device__ float colellaEvenInterp(float*in);
+__global__ void initialize(double* a, double* oA, double* x, double totalSize, int n, int ghosts);
+__global__ void advect(double dt, double* a, double* oA, double* x, double u, int n, int ghosts, double tmax);
+__global__ void initSinusoid(double* a, double* x, double totalX, int n, int ghosts, double shift, double amp);
+__global__ void initSquare(double* a, double* x, double totalX, int n, int ghosts);
+__device__ void setA(int x, double init, double* a);
+__device__ double linInterp(double* in);
+__device__ double colellaEvenInterp(double*in);
 
 class CFD{
 public:
-	CFD(int x, float size, float uIn);
-	void setInitial(int x, float init);	//create point of energy at specific cell
-	void step(float maxtime);	//solve for time step dt
-	float* getA();
+	CFD(int x, double size, double uIn);	//number of cells, size of cells, velocity
+	void setInitial(int x, double init);	//create point of energy at specific cell
+	void step(double maxtime);	//solve until maxtime
+	double* getA();
 	int getDim();
 private:
 	int dim, ghosts;
-	float* a, u, *x;
-	float* d_a, *d_x, *d_oA;
-	float totalX;
+	double* a, u, *x;
+	double* d_a, *d_x, *d_oA;
+	double totalX;
 	const int maxThreads = 1024;
 	int numBlocks;
 };
