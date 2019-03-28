@@ -14,7 +14,7 @@ __device__ double colellaEvenInterp(double*in);
 class CFD{
 public:
 	CFD(int x, double size, double uIn);	//number of cells, size of cells, velocity
-	void setInitial(int x, double init);	//create point of energy at specific cell
+	void setInitial(int x, double init);
 	void step(double maxtime);	//solve until maxtime
 	double* getA();
 	int getDim();
